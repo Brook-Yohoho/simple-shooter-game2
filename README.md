@@ -1,4 +1,4 @@
-# HTML5 Canvas Space Shooter Game
+# HTML5 Canvas Space Shooter Game　2
 
 A classic top-down space shooter game built entirely with HTML5 Canvas and plain JavaScript. Features multiple enemy types, a multi-phase boss battle, power-ups, and visual effects.
 

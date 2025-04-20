@@ -1,0 +1,1192 @@
+<!DOCTYPE html>
+<html lang="en"> <head>
+  <meta charset="UTF-8">
+  <title>Space Shooter Game</title> <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background-color: #000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      font-family: 'Arial', sans-serif;
+    }
+
+    #game-container {
+      position: relative;
+      width: 600px; /* Consistent with JS GAME_WIDTH */
+      height: 800px; /* Consistent with JS GAME_HEIGHT */
+      background-color: #000;
+      overflow: hidden;
+      border: 1px solid #555; /* Add a subtle border */
+    }
+
+    #game-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      background-color: #000; /* Ensure canvas background is black */
+    }
+
+    #game-ui {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      padding: 10px;
+      color: white;
+      font-size: 18px;
+      display: flex;
+      justify-content: space-between;
+      pointer-events: none; /* UI doesn't block clicks on canvas if needed */
+      box-sizing: border-box; /* Include padding in width */
+      text-shadow: 1px 1px 2px black; /* Add shadow for readability */
+    }
+
+    /* Common styles for overlays */
+    #game-over, #game-start, #level-clear {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex; /* Use flex */
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center; /* Center text inside */
+      background-color: rgba(0, 0, 0, 0.8); /* Slightly darker overlay */
+      color: white;
+      font-size: 28px; /* Adjusted font size */
+      opacity: 0; /* Start hidden */
+      visibility: hidden; /* Start hidden */
+      transition: opacity 0.5s ease-in-out, visibility 0.5s; /* Smooth fade */
+      pointer-events: none; /* Don't intercept clicks when hidden */
+    }
+
+    /* Style for visible overlays */
+    #game-over.visible, #game-start.visible, #level-clear.visible {
+        opacity: 1;
+        visibility: visible;
+        pointer-events: auto; /* Allow interaction when visible */
+    }
+
+    #game-over h1, #level-clear h1, #game-start h1 {
+        margin-bottom: 15px;
+        font-size: 48px; /* Larger main headings */
+         text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+    }
+     #game-start p {
+        font-size: 18px;
+        margin-bottom: 10px;
+     }
+
+    button {
+      margin-top: 25px;
+      padding: 12px 25px;
+      font-size: 22px;
+      background-color: #4CAF50; /* Green */
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      pointer-events: auto; /* Ensure buttons are always clickable when overlay is visible */
+      transition: background-color 0.2s;
+      box-shadow: 2px 2px 5px rgba(0,0,0,0.3);
+    }
+
+    button:hover {
+      background-color: #45a049; /* Darker green */
+    }
+
+    /* Boss HP Bar Styles */
+    #boss-hp-container {
+      position: absolute;
+      top: 45px; /* Position below main UI */
+      left: 10%; /* Indent from sides */
+      width: 80%; /* Make it narrower */
+      height: 15px;
+      background-color: #555; /* Dark grey background */
+      border: 1px solid #888;
+      border-radius: 5px;
+      overflow: hidden; /* Ensure HP bar stays within bounds */
+      display: none; /* Hidden by default */
+    }
+
+    #boss-hp {
+      height: 100%;
+      width: 100%; /* Start full */
+      background-color: #ff4444; /* Bright red */
+      border-radius: 4px; /* Slightly rounded corners inside */
+      transition: width 0.3s ease-out; /* Smooth HP transition */
+    }
+  </style>
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="game-canvas" width="600" height="800"></canvas>
+    <div id="game-ui">
+      <div>Score: <span id="score">0</span></div> <div>Lives: <span id="lives">3</span></div> </div>
+
+    <div id="boss-hp-container">
+      <div id="boss-hp"></div>
+    </div>
+
+    <div id="game-start" class="visible"> <h1>Space Shooter Game</h1> <p>WASD or Arrow Keys to Move, Space to Shoot</p> <p>Hold Shift for Slow Mode (Show Hitbox)</p> <button id="start-button">Start Game</button> </div>
+
+    <div id="game-over">
+      <h1>Game Over</h1> <p>Final Score: <span id="final-score">0</span></p> <button id="restart-button">Retry</button> </div>
+
+    <div id="level-clear">
+      <h1>Stage Clear!</h1> <p>Boss Defeated!</p> <p>Final Score: <span id="clear-score">0</span></p> <button id="restart-clear-button">Play Again</button> </div>
+  </div>
+
+  <script>
+    // --- DOM Elements ---
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const livesEl = document.getElementById('lives');
+    const startScreen = document.getElementById('game-start');
+    const gameOverScreen = document.getElementById('game-over');
+    const levelClearScreen = document.getElementById('level-clear');
+    const finalScoreEl = document.getElementById('final-score');
+    const clearScoreEl = document.getElementById('clear-score');
+    const startButton = document.getElementById('start-button');
+    const restartButton = document.getElementById('restart-button');
+    const restartClearButton = document.getElementById('restart-clear-button');
+    const bossHpContainer = document.getElementById('boss-hp-container');
+    const bossHpBar = document.getElementById('boss-hp');
+
+    // --- Game Settings ---
+    const GAME_WIDTH = 600;
+    const GAME_HEIGHT = 800;
+
+    // --- Key State Management ---
+    const keys = {};
+
+    // --- Image Loading ---
+    // Using simple colored rects as placeholders if images fail
+    const images = {};
+    const imagesToLoad = [
+      { name: 'player', src: '/api/placeholder/48/48/00ff00/000000?text=P', color: 'lime' }, // Green player
+      { name: 'enemy1', src: '/api/placeholder/40/40/ff0000/000000?text=E1', color: '#ff4444' }, // Red enemy
+      { name: 'enemy2', src: '/api/placeholder/50/50/ff8800/000000?text=E2', color: '#ffaa44' }, // Orange enemy
+      { name: 'enemy3', src: '/api/placeholder/60/60/cc00ff/000000?text=E3', color: '#cc44ff' }, // Purple enemy
+      { name: 'boss', src: '/api/placeholder/120/120/8888ff/000000?text=BOSS', color: '#8888ff' }, // Blue-grey boss
+      { name: 'playerBullet', src: '/api/placeholder/10/20/ffff00/000000?text=^', color: 'yellow' }, // Yellow bullet
+      { name: 'enemyBullet', src: '/api/placeholder/8/8/ff4444/000000?text=o', color: '#ff6666' }, // Light red bullet
+      { name: 'bossBullet', src: '/api/placeholder/15/15/ff00ff/000000?text=O', color: '#ff66ff' }, // Magenta boss bullet
+      { name: 'explosion', src: '/api/placeholder/50/50/ffa500/000000?text=X', color: 'orange' } // Orange explosion
+    ];
+
+    let imagesLoadedCount = 0;
+    let allImagesLoaded = false;
+
+    function loadImage(asset) {
+        const img = new Image();
+        img.src = asset.src;
+        img.onload = () => {
+            images[asset.name] = img;
+            imagesLoadedCount++;
+            if (imagesLoadedCount === imagesToLoad.length) {
+                allImagesLoaded = true;
+                console.log("All images loaded successfully."); // English log
+            }
+        };
+        img.onerror = () => {
+            console.warn(`Failed to load image: ${asset.src}. Using fallback color.`); // English log
+            // Create a fallback colored object/canvas representation if needed, or just use the color property directly in draw methods
+            images[asset.name] = { color: asset.color, width: parseInt(asset.src.split('/')[3]), height: parseInt(asset.src.split('/')[4]) }; // Store color and size
+             imagesLoadedCount++;
+             if (imagesLoadedCount === imagesToLoad.length) {
+                allImagesLoaded = true;
+                 console.log("Finished attempting to load all images (some may have failed)."); // English log
+             }
+        };
+    }
+
+    imagesToLoad.forEach(loadImage);
+
+    // --- Game State ---
+    let gameState = {}; // Will be initialized properly in initGame
+
+    // --- Background Stars ---
+    let stars = [];
+    function initStars() {
+        stars = [];
+        for (let i = 0; i < 100; i++) { // Create 100 stars
+            stars.push({
+                x: Math.random() * GAME_WIDTH,
+                y: Math.random() * GAME_HEIGHT,
+                radius: Math.random() * 1.5, // Random size
+                alpha: Math.random() * 0.5 + 0.5, // Varying brightness/alpha
+                speed: Math.random() * 10 + 5 // Varying downward speed
+            });
+        }
+    }
+
+    function drawStars(ctx, deltaTime) {
+        ctx.fillStyle = 'white';
+        stars.forEach(star => {
+            // Move star down based on its speed and deltaTime
+            star.y += star.speed * deltaTime;
+            // If star moves off the bottom, reset it to the top with a new random x position
+            if (star.y > GAME_HEIGHT) {
+                star.y = 0;
+                star.x = Math.random() * GAME_WIDTH;
+            }
+
+            // Draw the star with its specific alpha
+            ctx.globalAlpha = star.alpha;
+            ctx.beginPath();
+            ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
+            ctx.fill();
+        });
+         ctx.globalAlpha = 1.0; // Reset global alpha to default
+    }
+
+    // --- Base Class for all Game Objects ---
+    class GameObject {
+      constructor(x, y, width, height, speed, imageAsset) {
+        this.x = x;
+        this.y = y;
+        this.width = width;
+        this.height = height;
+        this.speed = speed;
+        this.imageAsset = imageAsset; // Reference to the loaded image object or fallback color info
+        this.markedForDeletion = false; // Flag for removal
+      }
+
+      // Update method (to be overridden by subclasses)
+      update(deltaTime) {
+        // Default implementation does nothing
+      }
+
+      // Draw method (handles image or fallback color)
+      draw(ctx) {
+          if (this.imageAsset instanceof HTMLImageElement) {
+              // Draw the loaded image
+              ctx.drawImage(this.imageAsset, this.x, this.y, this.width, this.height);
+          } else if (this.imageAsset && this.imageAsset.color) {
+              // Draw a colored rectangle as a fallback if the image failed to load
+              ctx.fillStyle = this.imageAsset.color;
+              ctx.fillRect(this.x, this.y, this.width, this.height);
+          } else {
+              // Absolute fallback: draw a grey rectangle if no asset info exists
+               ctx.fillStyle = 'grey';
+               ctx.fillRect(this.x, this.y, this.width, this.height);
+          }
+      }
+
+      // Get the rectangular bounds of the object for collision detection
+      getBounds() {
+        return {
+          left: this.x,
+          right: this.x + this.width,
+          top: this.y,
+          bottom: this.y + this.height
+        };
+      }
+    }
+
+    // --- Player Class ---
+    class Player extends GameObject {
+      constructor(x, y) {
+        super(x, y, 48, 48, 350, images.player); // Player properties
+        this.shotCooldown = 0;      // Timer for firing rate
+        this.shotInterval = 0.15;   // Time between shots (in seconds)
+        this.isSlowMode = false;    // Flag for holding Shift
+        this.hitboxSize = 8;        // Radius for collision detection
+        this.powerUpLevel = 0;      // Current weapon power-up level
+        this.powerUpDuration = 10;  // How long power-ups last (seconds)
+        this.powerUpTimer = 0;      // Timer for power-up duration
+      }
+
+      update(deltaTime) {
+        // --- Movement ---
+        const currentSpeed = this.speed * (this.isSlowMode ? 0.5 : 1); // Half speed in slow mode
+
+        // Check both WASD and Arrow Keys for movement
+        if ((keys.KeyA || keys.ArrowLeft) && this.x > 0) { // Left
+          this.x -= currentSpeed * deltaTime;
+        }
+        if ((keys.KeyD || keys.ArrowRight) && this.x < GAME_WIDTH - this.width) { // Right
+          this.x += currentSpeed * deltaTime;
+        }
+        if ((keys.KeyW || keys.ArrowUp) && this.y > 0) { // Up
+          this.y -= currentSpeed * deltaTime;
+        }
+        if ((keys.KeyS || keys.ArrowDown) && this.y < GAME_HEIGHT - this.height) { // Down
+          this.y += currentSpeed * deltaTime;
+        }
+
+        // --- Shooting ---
+        if (this.shotCooldown > 0) {
+          this.shotCooldown -= deltaTime; // Decrease cooldown timer
+        }
+        if (keys.Space && this.shotCooldown <= 0) { // Check Space key and cooldown
+          this.shoot();
+          this.shotCooldown = this.shotInterval; // Reset cooldown
+        }
+
+        // --- Slow Mode ---
+        this.isSlowMode = keys.ShiftLeft || keys.ShiftRight; // Check if Shift is held
+
+        // --- Power-up Timer ---
+         if (this.powerUpTimer > 0) {
+             this.powerUpTimer -= deltaTime; // Decrease power-up timer
+             if (this.powerUpTimer <= 0) {
+                 this.powerUpLevel = 0; // Reset power-up level when timer runs out
+                 console.log("Power Up Expired.");
+             }
+         }
+      }
+
+      draw(ctx) {
+        super.draw(ctx); // Draw the player sprite (or fallback color)
+
+        // Draw the hitbox visualization if in slow mode
+        if (this.isSlowMode) {
+          ctx.beginPath();
+          // Draw a circle centered on the player sprite
+          ctx.arc(this.x + this.width / 2, this.y + this.height / 2, this.hitboxSize, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(0, 255, 255, 0.8)'; // Bright cyan color for hitbox
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        }
+      }
+
+      // Creates player bullets
+      shoot() {
+        const bulletX = this.x + this.width / 2 - 5; // Center bullet horizontally relative to player
+        const bulletY = this.y; // Start bullet from the top of the player sprite
+
+        // Always fire the main bullet
+        gameState.playerBullets.push(new PlayerBullet(bulletX, bulletY));
+
+        // Fire additional bullets based on power-up level
+        if (this.powerUpLevel >= 1) { // Level 1: Add two side bullets
+          gameState.playerBullets.push(new PlayerBullet(bulletX - 15, bulletY + 5));
+          gameState.playerBullets.push(new PlayerBullet(bulletX + 15, bulletY + 5));
+        }
+         // Add conditions for higher powerUpLevels here if needed
+      }
+
+      // Checks collision between the player's circular hitbox and a bullet object
+      checkCollision(bullet) {
+        // Calculate distance between the center of the player's hitbox and the center of the bullet
+        const dx = (this.x + this.width / 2) - (bullet.x + bullet.width / 2);
+        const dy = (this.y + this.height / 2) - (bullet.y + bullet.height / 2);
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        // Collision occurs if the distance is less than the sum of the player hitbox radius and half the bullet's size (approximating bullet as a circle)
+        const collisionDistance = this.hitboxSize + Math.max(bullet.width, bullet.height) / 2;
+        return distance < collisionDistance;
+      }
+
+        // Call this method when the player should gain a power-up (e.g., by collecting an item)
+        gainPowerUp() {
+            const maxPowerUpLevel = 1; // Set maximum power-up level here
+            if (this.powerUpLevel < maxPowerUpLevel) {
+                 this.powerUpLevel++;
+                 this.powerUpTimer = this.powerUpDuration; // Reset/Start duration timer
+                 console.log("Power Up! Level:", this.powerUpLevel);
+            } else {
+                 // If already at max level, just reset the duration timer
+                 this.powerUpTimer = this.powerUpDuration;
+                 console.log("Power Up Duration Extended!");
+            }
+        }
+    } // End of Player Class
+
+    // --- Player Bullet Class ---
+    class PlayerBullet extends GameObject {
+      constructor(x, y) {
+        super(x, y, 10, 20, 700, images.playerBullet); // Player bullet properties (fast speed)
+        this.damage = 1; // Damage dealt by player bullet
+      }
+
+      update(deltaTime) {
+        this.y -= this.speed * deltaTime; // Move upwards
+        // Mark for deletion if it goes off the top of the screen
+        if (this.y < -this.height) {
+          this.markedForDeletion = true;
+        }
+      }
+    }
+
+    // --- Base Enemy Class ---
+    class Enemy extends GameObject {
+      constructor(x, y, width, height, speed, imageAsset, hp, scoreValue) {
+        super(x, y, width, height, speed, imageAsset);
+        this.hp = hp;          // Current health points
+        this.maxHp = hp;       // Maximum health points (useful for HP bars if needed)
+        this.scoreValue = scoreValue; // Score awarded for defeating this enemy
+        this.shotCooldown = 1.0 + Math.random() * 2.0; // Initial delay before the first shot
+      }
+
+      update(deltaTime) {
+        this.y += this.speed * deltaTime; // Move downwards
+        // Mark for deletion if it goes off the bottom of the screen
+        if (this.y > GAME_HEIGHT) {
+          this.markedForDeletion = true;
+        }
+
+        // Shooting logic
+        this.shotCooldown -= deltaTime; // Decrease shot cooldown timer
+        if (this.shotCooldown <= 0) {
+          this.shoot(); // Fire a shot
+          this.resetShotCooldown(); // Reset the cooldown timer for the next shot
+        }
+      }
+
+      // Resets the shot cooldown timer (can be overridden by subclasses for different firing rates)
+      resetShotCooldown() {
+          this.shotCooldown = 2.5 + Math.random() * 2.0; // Default cooldown range
+      }
+
+      // Placeholder for the shooting behavior (must be implemented by subclasses)
+      shoot() {
+        // To be implemented by specific enemy types
+      }
+
+      // Reduces enemy HP when hit and handles destruction
+      takeDamage(damage) {
+        this.hp -= damage;
+        if (this.hp <= 0) {
+          // Ensure score and explosion happen only once
+          if (!this.markedForDeletion) {
+              this.markedForDeletion = true; // Mark for deletion
+              gameState.score += this.scoreValue; // Add score to game state
+              updateUI(); // Update score display immediately
+
+              // Create an explosion effect at the enemy's center
+              gameState.explosions.push(
+                  new Explosion(this.x + this.width / 2 - 25, this.y + this.height / 2 - 25)
+              );
+
+              // Small chance to trigger player power-up on enemy defeat (example)
+               if (Math.random() < 0.1 && gameState.player) { // 10% chance
+                   gameState.player.gainPowerUp();
+               }
+          }
+        }
+      }
+    } // End of Base Enemy Class
+
+    // --- Specific Enemy Types ---
+
+    // Enemy Type 1: Basic enemy, shoots straight down
+    class Enemy1 extends Enemy {
+      constructor(x, y) {
+        super(x, y, 40, 40, 120, images.enemy1, 2, 100); // Stats: speed, image, hp, score
+      }
+      shoot() {
+        const bulletX = this.x + this.width / 2 - 4; // Center bullet horizontally
+        const bulletY = this.y + this.height; // Shoot from bottom
+        gameState.enemyBullets.push(new EnemyBullet(bulletX, bulletY, 0, 1)); // Fire straight down (vx=0, vy=1)
+      }
+    }
+
+    // Enemy Type 2: Faster, shoots a 3-way spread shot
+    class Enemy2 extends Enemy {
+      constructor(x, y) {
+        super(x, y, 50, 50, 180, images.enemy2, 3, 200); // Stats: speed, image, hp, score
+      }
+      // Overrides base cooldown for faster firing
+      resetShotCooldown() {
+        this.shotCooldown = 1.5 + Math.random() * 1.5;
+      }
+      shoot() {
+        const bulletX = this.x + this.width / 2 - 4; // Center bullet horizontally
+        const bulletY = this.y + this.height; // Shoot from bottom
+        gameState.enemyBullets.push(new EnemyBullet(bulletX, bulletY, 0, 1));    // Center shot
+        gameState.enemyBullets.push(new EnemyBullet(bulletX, bulletY, -0.3, 0.95)); // Slightly left shot
+        gameState.enemyBullets.push(new EnemyBullet(bulletX, bulletY, 0.3, 0.95));  // Slightly right shot
+      }
+    }
+
+    // Enemy Type 3: Tanky (more HP), shoots a circular burst of bullets
+    class Enemy3 extends Enemy {
+      constructor(x, y) {
+        super(x, y, 60, 60, 90, images.enemy3, 6, 300); // Stats: speed, image, hp, score
+      }
+      // Overrides base cooldown for slower, burst firing
+      resetShotCooldown() {
+        this.shotCooldown = 3.0 + Math.random() * 2.5;
+      }
+      shoot() {
+        const bulletX = this.x + this.width / 2 - 4; // Bullet origin X (center)
+        const bulletY = this.y + this.height / 2; // Bullet origin Y (center)
+        const bulletCount = 8; // Number of bullets in the burst
+        for (let i = 0; i < bulletCount; i++) {
+          const angle = (i / bulletCount) * Math.PI * 2; // Calculate angle for each bullet
+          const vx = Math.sin(angle); // Horizontal velocity component
+          const vy = Math.cos(angle); // Vertical velocity component
+          gameState.enemyBullets.push(new EnemyBullet(bulletX, bulletY, vx, vy)); // Create bullet with calculated velocity
+        }
+      }
+    }
+
+    // --- Boss Class ---
+    class Boss extends Enemy {
+        constructor() {
+            // Define boss properties
+            const bossWidth = 120;
+            const bossHeight = 120;
+            const bossMaxHp = 150; // Boss health
+            const scoreValue = 5000; // Score for defeating boss
+            // Initial position off-screen top-center
+            super(GAME_WIDTH / 2 - bossWidth / 2, -bossHeight - 20, bossWidth, bossHeight, 60, images.boss, bossMaxHp, scoreValue);
+
+            this.maxHp = bossMaxHp; // Store max HP for HP bar calculation
+            this.phase = 1;         // Current attack phase
+            this.attackCooldown = 3.0; // Time between attacks (seconds)
+            this.attackTimer = 3.0;    // Timer for attack cooldown
+            this.isMovingIn = true;    // Flag for boss entrance animation
+            this.targetY = 80;       // Vertical position boss stops at
+            this.movementAngle = Math.random() * Math.PI * 2; // Initial angle for horizontal movement pattern
+            this.horizontalSpeed = 1.5; // Speed of horizontal oscillation
+            this.horizontalRange = 180; // Max distance boss moves left/right from center
+        }
+
+        update(deltaTime) {
+            // --- Boss Entrance Sequence ---
+            if (this.isMovingIn) {
+                if (this.y < this.targetY) {
+                    this.y += this.speed * deltaTime; // Move down into position
+                } else {
+                    this.y = this.targetY; // Snap to final Y position
+                    this.isMovingIn = false; // End entrance sequence
+                    console.log("Boss has entered the arena.");
+                    // Update and show the boss HP bar once in position
+                    updateBossHPBar(this.hp, this.maxHp);
+                    bossHpContainer.style.display = 'block';
+                }
+                return; // Skip normal movement and attacks during entrance
+            }
+
+            // --- Horizontal Movement (Sine Wave) ---
+            this.movementAngle += this.horizontalSpeed * deltaTime;
+            // Calculate X based on sine wave, centered on the screen
+            this.x = (GAME_WIDTH / 2 - this.width / 2) + Math.sin(this.movementAngle) * this.horizontalRange;
+            // Clamp X position to stay within screen bounds
+            if (this.x < 0) this.x = 0;
+            if (this.x > GAME_WIDTH - this.width) this.x = GAME_WIDTH - this.width;
+
+            // --- Phase Transitions based on HP ---
+            const hpRatio = this.hp / this.maxHp;
+            if (this.phase === 1 && hpRatio <= 0.66) { // Enter Phase 2 at 66% HP
+                this.phase = 2;
+                this.attackCooldown = 2.0; // Faster attacks
+                console.log("Boss entering Phase 2!");
+            } else if (this.phase === 2 && hpRatio <= 0.33) { // Enter Phase 3 at 33% HP
+                this.phase = 3;
+                this.attackCooldown = 1.2; // Even faster attacks
+                this.horizontalSpeed = 2.5; // Moves faster
+                console.log("Boss entering Phase 3!");
+            }
+
+            // --- Attack Cooldown ---
+            this.attackTimer -= deltaTime; // Decrease attack timer
+            if (this.attackTimer <= 0) {
+                this.attack(); // Perform attack
+                this.attackTimer = this.attackCooldown; // Reset attack timer
+            }
+        }
+
+        // Selects and performs an attack based on the current phase
+        attack() {
+            const playerExists = gameState.player && !gameState.player.markedForDeletion; // Check if player is alive
+
+            switch (this.phase) {
+                case 1:
+                    this.attackPattern1(); // Only use pattern 1 in phase 1
+                    break;
+                case 2:
+                    // Mix patterns 1 and 2 in phase 2
+                    if (Math.random() < 0.6) { this.attackPattern2(); }
+                    else { this.attackPattern1(); }
+                    break;
+                case 3:
+                    // Mix all patterns aggressively in phase 3
+                     const randAttack = Math.random();
+                     if (randAttack < 0.4) { this.attackPattern3(playerExists); }
+                     else if (randAttack < 0.8) { this.attackPattern2(); }
+                     else { this.attackPattern1(); }
+                    break;
+            }
+        }
+
+        // --- Boss Attack Patterns ---
+         attackPattern1() { // Downward Spread Shot
+            const bulletX = this.x + this.width / 2; // Origin X (center)
+            const bulletY = this.y + this.height;    // Origin Y (bottom)
+            const numBullets = 5;                   // Number of bullets
+            const spreadAngle = Math.PI / 6;        // Total angle of spread (30 degrees)
+
+            for (let i = 0; i < numBullets; i++) {
+                // Calculate angle for each bullet, centered around straight down (PI/2)
+                const angle = (i / (numBullets - 1) - 0.5) * spreadAngle + Math.PI / 2;
+                const vx = Math.cos(angle); // Velocity X
+                const vy = Math.sin(angle); // Velocity Y
+                gameState.enemyBullets.push(new BossBullet(bulletX - 7.5, bulletY, vx, vy)); // Create boss bullet
+            }
+         }
+
+         attackPattern2() { // Spiral Burst Shot
+             const bulletX = this.x + this.width / 2; // Origin X (center)
+             const bulletY = this.y + this.height / 2; // Origin Y (center)
+             const numBullets = 10;                  // Number of bullets
+             const angleOffset = Math.random() * Math.PI * 2; // Randomize starting angle of spiral
+
+             for (let i = 0; i < numBullets; i++) {
+                 const angle = (i / numBullets) * Math.PI * 2 + angleOffset; // Angle for this bullet
+                 const vx = Math.sin(angle); // Velocity X
+                 const vy = Math.cos(angle); // Velocity Y
+                 // Use setTimeout to create a delayed, spiraling effect
+                 setTimeout(() => {
+                     // Check if game is still running and boss is alive before spawning
+                     if (!gameState.gameOver && !gameState.levelCleared && !this.markedForDeletion) {
+                         gameState.enemyBullets.push(new BossBullet(bulletX - 7.5, bulletY - 7.5, vx, vy));
+                     }
+                 }, i * 50); // 50ms delay between each bullet in the spiral
+             }
+         }
+
+        attackPattern3(playerExists) { // Targeted Burst + Random Downward Barrage
+            const bulletX = this.x + this.width / 2; // Origin X (center)
+            const bulletY = this.y + this.height / 2; // Origin Y (center)
+
+            // Fire a burst aimed at the player if the player exists
+            if (playerExists) {
+                 const p = gameState.player; // Reference to player object
+                 // Calculate angle from boss center to player center
+                 const angleToPlayer = Math.atan2(
+                     (p.y + p.height / 2) - bulletY,
+                     (p.x + p.width / 2) - bulletX
+                 );
+                 const numTargeted = 3; // Number of bullets in the targeted burst
+                 const targetSpread = Math.PI / 18; // Small angle between targeted bullets
+                 for (let i = 0; i < numTargeted; i++) {
+                      // Adjust angle slightly for spread effect
+                      const angle = angleToPlayer + (i - Math.floor(numTargeted/2)) * targetSpread;
+                      const vx = Math.cos(angle); // Velocity X
+                      const vy = Math.sin(angle); // Velocity Y
+                       gameState.enemyBullets.push(new BossBullet(bulletX - 7.5, bulletY - 7.5, vx, vy));
+                 }
+            }
+
+             // Fire a random barrage of bullets downwards from the boss's width
+             const numBarrage = 6; // Number of bullets in the barrage
+             for(let i = 0; i < numBarrage; i++) {
+                 // Use setTimeout for a scattered, delayed effect
+                 setTimeout(() => {
+                      // Check if game is still running and boss is alive
+                     if (!gameState.gameOver && !gameState.levelCleared && !this.markedForDeletion) {
+                         const randX = this.x + Math.random() * this.width; // Random X position along boss width
+                         // Fire straight down (vx=0, vy=1) from the random position
+                         gameState.enemyBullets.push(new BossBullet(randX - 7.5, this.y + this.height, 0, 1));
+                     }
+                 }, Math.random() * 300); // Random delay up to 300ms
+             }
+        }
+
+
+        // Override takeDamage for Boss specific behavior
+        takeDamage(damage) {
+            if (this.isMovingIn) return; // Boss is invulnerable during entrance
+
+            this.hp -= damage; // Reduce HP
+            updateBossHPBar(this.hp, this.maxHp); // Update the visual HP bar
+
+            // Check if boss is defeated
+            if (this.hp <= 0) {
+                 if (!this.markedForDeletion) { // Prevent multiple triggers
+                    this.markedForDeletion = true; // Mark for deletion
+                    gameState.score += this.scoreValue; // Award score
+                    gameState.levelCleared = true; // Set the level clear flag
+                    bossHpContainer.style.display = 'none'; // Hide the boss HP bar
+
+                    // Trigger a large sequence of explosions for visual effect
+                    for (let i = 0; i < 15; i++) { // Create 15 explosions
+                        setTimeout(() => {
+                            // Random position within the boss area
+                            const randX = this.x + Math.random() * this.width;
+                            const randY = this.y + Math.random() * this.height;
+                            gameState.explosions.push(new Explosion(randX - 25, randY - 25));
+                        }, i * 100); // Stagger explosions over 1.5 seconds
+                    }
+                    console.log("Boss has been defeated!");
+                 }
+            }
+        }
+    } // End of Boss Class
+
+
+    // --- Enemy Bullet Class ---
+    class EnemyBullet extends GameObject {
+      constructor(x, y, vx, vy) { // Requires position (x,y) and velocity vector (vx,vy)
+        super(x, y, 8, 8, 220, images.enemyBullet); // Enemy bullet properties
+        this.vx = vx; // Horizontal velocity component
+        this.vy = vy; // Vertical velocity component
+
+        // Normalize the velocity vector to ensure consistent speed regardless of direction
+        const length = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+        if (length !== 0) { // Avoid division by zero
+          this.vx /= length; // Normalize vx
+          this.vy /= length; // Normalize vy
+        } else {
+            this.vy = 1; // Default to moving straight down if length is zero
+        }
+      }
+
+      update(deltaTime) {
+        // Move bullet based on normalized velocity, speed, and delta time
+        this.x += this.vx * this.speed * deltaTime;
+        this.y += this.vy * this.speed * deltaTime;
+
+        // Mark for deletion if bullet goes off screen (any side)
+        if (this.y > GAME_HEIGHT + this.height || this.y < -this.height ||
+            this.x > GAME_WIDTH + this.width || this.x < -this.width) {
+          this.markedForDeletion = true;
+        }
+      }
+    }
+
+    // --- Boss Bullet Class (inherits from EnemyBullet) ---
+    class BossBullet extends EnemyBullet {
+      constructor(x, y, vx, vy) {
+        super(x, y, vx, vy); // Call parent constructor
+        // Override some properties for boss bullets
+        this.width = 15;
+        this.height = 15;
+        this.speed = 280; // Boss bullets are faster
+        this.imageAsset = images.bossBullet; // Use the specific boss bullet asset
+      }
+       // Update logic is automatically inherited from EnemyBullet
+    }
+
+    // --- Explosion Effect Class ---
+    class Explosion extends GameObject {
+      constructor(x, y) {
+        super(x, y, 50, 50, 0, images.explosion); // Explosions don't move (speed 0)
+        this.lifetime = 0.4; // How long the explosion lasts (seconds)
+        this.timer = 0;      // Timer to track lifetime
+      }
+
+      update(deltaTime) {
+        this.timer += deltaTime; // Increment timer
+        // Mark for deletion once lifetime is reached
+        if (this.timer >= this.lifetime) {
+          this.markedForDeletion = true;
+        }
+      }
+
+      // Overrides draw to add fade-out effect
+      draw(ctx) {
+        // Calculate alpha based on remaining lifetime for fade-out
+        const alpha = Math.max(0, 1 - (this.timer / this.lifetime));
+        ctx.globalAlpha = alpha; // Set transparency
+        super.draw(ctx); // Draw the explosion image/fallback
+        ctx.globalAlpha = 1.0; // Reset global alpha
+      }
+    }
+
+    // --- Game Logic Functions ---
+
+    // Initializes or resets the game state
+    function initGame() {
+        console.log("Initializing game state...");
+        gameState = {
+            player: new Player(GAME_WIDTH / 2 - 24, GAME_HEIGHT - 100), // Create new player
+            enemies: [],             // Clear enemy array
+            playerBullets: [],       // Clear bullet arrays
+            enemyBullets: [],
+            explosions: [],          // Clear explosion array
+            score: 0,                // Reset score
+            lives: 3,                // Reset lives
+            gameOver: false,         // Reset game over flag
+            gameStarted: true,       // Set game as started
+            levelCleared: false,     // Reset level clear flag
+            waveCount: 0,            // Reset wave counter
+            bossActive: false,       // Reset boss flag
+            boss: null,              // Clear boss object
+            lastEnemySpawnTime: 0,   // Reset spawn timer
+            enemySpawnInterval: 3000, // Reset spawn interval (ms)
+            baseEnemySpawnInterval: 3000, // Store base interval
+            minEnemySpawnInterval: 800, // Minimum interval
+            lastTime: 0,             // Reset loop timer
+            difficultyLevel: 1,      // Reset difficulty
+            gameTime: 0              // Reset game timer
+        };
+
+        initStars(); // Re-initialize background stars
+        updateUI(); // Update score/lives display
+
+        // Hide overlays and reset boss HP bar display
+        startScreen.classList.remove('visible');
+        gameOverScreen.classList.remove('visible');
+        levelClearScreen.classList.remove('visible');
+        bossHpContainer.style.display = 'none';
+        bossHpBar.style.width = '100%'; // Reset HP bar visually
+
+        // Start the main game loop
+        gameState.lastTime = performance.now(); // Get current time for accurate deltaTime
+        if (!animationFrameId) { // Only start loop if not already running
+           console.log("Starting game loop...");
+           gameLoop(gameState.lastTime);
+        } else {
+            console.log("Game loop already running (restarting).")
+        }
+    }
+
+
+    // Handles spawning waves of enemies or the boss
+    function spawnEnemies(currentTime) {
+        // --- Boss Spawning Logic ---
+        const BOSS_WAVE_THRESHOLD = 10; // Wave number to spawn the boss
+        if (!gameState.bossActive && gameState.waveCount >= BOSS_WAVE_THRESHOLD) {
+            gameState.bossActive = true;      // Activate boss mode
+            gameState.boss = new Boss();      // Create the boss instance
+            gameState.enemies = [];           // Clear any remaining regular enemies
+            console.log("Boss Incoming!");
+            return; // Stop here, boss entrance is handled in its update method
+        }
+
+        // If boss is currently active, skip regular enemy spawning
+        if (gameState.bossActive) {
+             // If boss object exists but marked for deletion (defeated), reset bossActive
+             if (gameState.boss && gameState.boss.markedForDeletion) {
+                 gameState.boss = null;
+                 gameState.bossActive = false; // Or handle level end differently
+             }
+             return; // No regular enemies during boss fight
+        }
+
+
+        // --- Regular Enemy Spawning Logic ---
+        gameState.waveCount++; // Increment wave counter
+        console.log(`Spawning Wave: ${gameState.waveCount}, Difficulty: ${gameState.difficultyLevel.toFixed(1)}`);
+
+        // Calculate number of enemies based on current difficulty level
+        const baseEnemyCount = 3;
+        const enemyCount = baseEnemyCount + Math.floor(gameState.difficultyLevel);
+
+        // Spawn enemies with a delay between each one in the wave
+        for (let i = 0; i < enemyCount; i++) {
+            setTimeout(() => {
+                // Double-check game hasn't ended or boss appeared while waiting for setTimeout
+                if (gameState.gameOver || gameState.levelCleared || gameState.bossActive) return;
+
+                // Calculate random horizontal spawn position (within screen bounds)
+                const x = Math.random() * (GAME_WIDTH - 60) + 30;
+                const y = -80; // Start above the screen
+
+                // Determine enemy type randomly, influenced by difficulty
+                const enemyTypeRand = Math.random();
+                let enemy;
+                // Probability shifts towards harder enemies as difficulty increases
+                if (enemyTypeRand < 0.6 - gameState.difficultyLevel * 0.05) {
+                    enemy = new Enemy1(x, y);
+                } else if (enemyTypeRand < 0.85 - gameState.difficultyLevel * 0.03) {
+                    enemy = new Enemy2(x, y);
+                } else {
+                    enemy = new Enemy3(x, y);
+                }
+                gameState.enemies.push(enemy); // Add the new enemy to the game state
+
+            }, i * 200); // 200ms delay between spawns in the same wave
+        }
+
+        // --- Increase Difficulty ---
+        gameState.difficultyLevel += 0.2; // Gradually increase difficulty
+        // Decrease time between waves, but not below a minimum
+        gameState.enemySpawnInterval = Math.max(
+            gameState.minEnemySpawnInterval, // Minimum spawn interval
+            gameState.baseEnemySpawnInterval - gameState.difficultyLevel * 100 // Decrease interval based on difficulty
+        );
+    }
+
+    // Checks all relevant collisions
+    function checkCollisions() {
+        // Exit if player doesn't exist (e.g., during game over transition)
+        if (!gameState.player) return;
+
+        // 1. Player Bullets vs Enemies/Boss
+        gameState.playerBullets.forEach(bullet => {
+            if (bullet.markedForDeletion) return; // Skip already hit bullets
+
+            // Check against each regular enemy
+            gameState.enemies.forEach(enemy => {
+                if (!enemy.markedForDeletion && checkAABBCollision(bullet, enemy)) {
+                    bullet.markedForDeletion = true; // Mark bullet for removal
+                    enemy.takeDamage(bullet.damage);   // Enemy takes damage
+                }
+            });
+
+            // Check against the boss (if active and not entering)
+            if (gameState.boss && !gameState.boss.markedForDeletion && !gameState.boss.isMovingIn) {
+                 if (checkAABBCollision(bullet, gameState.boss)) {
+                      bullet.markedForDeletion = true; // Mark bullet for removal
+                      gameState.boss.takeDamage(bullet.damage);    // Boss takes damage
+                 }
+            }
+        });
+
+        // 2. Enemy/Boss Bullets vs Player
+        gameState.enemyBullets.forEach(bullet => {
+            // Use player's specific circular collision check method
+            if (!bullet.markedForDeletion && gameState.player.checkCollision(bullet)) {
+                bullet.markedForDeletion = true; // Mark bullet for removal
+                playerHit(); // Process player being hit
+            }
+        });
+
+         // 3. Enemies vs Player
+        gameState.enemies.forEach(enemy => {
+            // Use AABB check (could also use player's circle check if preferred)
+            // Added threshold to make collision feel slightly more lenient
+            if (!enemy.markedForDeletion && checkAABBCollision(gameState.player, enemy, gameState.player.hitboxSize * 0.5)) {
+                 enemy.markedForDeletion = true; // Destroy enemy on collision
+                 playerHit(); // Player takes damage
+            }
+        });
+
+         // 4. Boss vs Player
+         if (gameState.boss && !gameState.boss.markedForDeletion && !gameState.boss.isMovingIn) {
+             // Use AABB check for boss collision
+             if (checkAABBCollision(gameState.player, gameState.boss, gameState.player.hitboxSize * 0.5)) {
+                 playerHit(); // Player takes damage
+             }
+         }
+    }
+
+     // Axis-Aligned Bounding Box (AABB) collision check function
+     // Checks if the rectangles of two objects overlap
+     function checkAABBCollision(obj1, obj2) {
+         const bounds1 = obj1.getBounds();
+         const bounds2 = obj2.getBounds();
+
+         // Special handling if obj1 is the player, use its circular hitbox for collision
+         if (obj1 instanceof Player) {
+             const center1X = obj1.x + obj1.width / 2;
+             const center1Y = obj1.y + obj1.height / 2;
+             // Check if player's circle overlaps with obj2's rectangle
+             // Find closest point in obj2's rectangle to player's center
+             const closestX = Math.max(bounds2.left, Math.min(center1X, bounds2.right));
+             const closestY = Math.max(bounds2.top, Math.min(center1Y, bounds2.bottom));
+             // Calculate distance between player center and closest point
+             const dx = center1X - closestX;
+             const dy = center1Y - closestY;
+             const distanceSquared = (dx * dx) + (dy * dy);
+             // Collision if distance squared is less than hitbox radius squared
+             return distanceSquared < (obj1.hitboxSize * obj1.hitboxSize);
+         }
+
+         // Standard AABB check for two rectangles
+         return bounds1.left < bounds2.right &&
+                bounds1.right > bounds2.left &&
+                bounds1.top < bounds2.bottom &&
+                bounds1.bottom > bounds2.top;
+     }
+
+
+    // Called when the player is hit by a bullet or enemy
+    function playerHit() {
+        if (gameState.gameOver || gameState.levelCleared) return; // Prevent hits after game ends
+
+        gameState.lives--; // Decrease lives
+        updateUI();        // Update lives display
+
+        // Create an explosion at the player's current position
+        if(gameState.player) {
+             gameState.explosions.push(
+                 new Explosion(gameState.player.x, gameState.player.y)
+             );
+        }
+
+        // Check for game over
+        if (gameState.lives <= 0) {
+            triggerGameOver();
+        } else {
+            console.log(`Player was hit! Lives remaining: ${gameState.lives}`);
+            // Future enhancement: Add brief invincibility frames after being hit
+        }
+    }
+
+    // Sets the game over state and displays the game over screen
+    function triggerGameOver() {
+        if (gameState.gameOver) return; // Ensure it only triggers once
+        console.log("Game Over triggered!");
+        gameState.gameOver = true; // Set game over flag
+        finalScoreEl.textContent = gameState.score; // Display final score
+        gameOverScreen.classList.add('visible'); // Show game over overlay
+        // Consider stopping background music or playing a game over sound here
+    }
+
+    // Sets the level clear state and displays the level clear screen
+    function triggerLevelClear() {
+         // This should typically be called when the boss's HP reaches 0 in takeDamage
+         if (gameState.levelCleared && !levelClearScreen.classList.contains('visible')) { // Check if flag is set but screen not shown yet
+             console.log("Level Clear triggered!");
+             clearScoreEl.textContent = gameState.score; // Display final score
+             levelClearScreen.classList.add('visible'); // Show level clear overlay
+              // Consider stopping music or playing a victory sound here
+         }
+    }
+
+    // Updates the score and lives elements in the HTML UI
+    function updateUI() {
+        scoreEl.textContent = gameState.score;
+        livesEl.textContent = gameState.lives;
+    }
+
+    // Updates the boss HP bar width based on current/max HP
+    function updateBossHPBar(currentHp, maxHp) {
+         const hpPercent = Math.max(0, (currentHp / maxHp) * 100); // Calculate percentage, minimum 0
+         bossHpBar.style.width = `${hpPercent}%`; // Set CSS width property
+    }
+
+    // --- Main Game Loop ---
+    let animationFrameId = null; // Stores the ID returned by requestAnimationFrame
+
+    function gameLoop(timestamp) { // timestamp is provided by requestAnimationFrame
+        // Request the next animation frame. This creates the loop.
+        animationFrameId = requestAnimationFrame(gameLoop);
+
+        // Only run the main logic if the game has started and images are loaded
+        if (!gameState.gameStarted || !allImagesLoaded) {
+            // Could display a "Loading..." state on the canvas here
+            return;
+        }
+
+        // Calculate time elapsed since the last frame (in seconds)
+        const deltaTime = Math.min(0.05, (timestamp - gameState.lastTime) / 1000); // Cap deltaTime to prevent large jumps
+        gameState.lastTime = timestamp;
+        gameState.gameTime += deltaTime; // Keep track of total elapsed game time
+
+        // --- Handle Game End States ---
+        if (gameState.gameOver) {
+            // If game is over, might still want to draw background/explosions but stop updates
+             ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+             drawStars(ctx, deltaTime);
+             gameState.explosions.forEach(exp => { // Continue drawing existing explosions
+                  exp.update(deltaTime); // Update explosion animation timer
+                  exp.draw(ctx);
+             });
+             gameState.explosions = gameState.explosions.filter(exp => !exp.markedForDeletion); // Clean up finished explosions
+            // No further updates or drawing of active game elements
+            return;
+        }
+
+        if (gameState.levelCleared) {
+            // If level is cleared, show the clear screen and potentially stop updates
+             if (!levelClearScreen.classList.contains('visible')) {
+                 triggerLevelClear(); // Make sure clear screen is visible
+             }
+             // Similar to game over, might draw background/explosions
+             ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+             drawStars(ctx, deltaTime);
+             gameState.explosions.forEach(exp => { // Continue drawing existing explosions
+                  exp.update(deltaTime);
+                  exp.draw(ctx);
+             });
+             gameState.explosions = gameState.explosions.filter(exp => !exp.markedForDeletion);
+            return;
+        }
+
+        // --- Game Logic Updates ---
+
+        // Update background stars (movement) - drawing happens later
+        // (Star update is included in drawStars for simplicity here)
+
+        // Check and spawn enemies based on timer (if boss is not active)
+        if (!gameState.bossActive && timestamp - gameState.lastEnemySpawnTime > gameState.enemySpawnInterval) {
+            spawnEnemies(timestamp);
+            gameState.lastEnemySpawnTime = timestamp; // Reset spawn timer
+        }
+
+        // Update all active game objects
+        if (gameState.player) { gameState.player.update(deltaTime); }
+        gameState.playerBullets.forEach(b => b.update(deltaTime));
+        gameState.enemyBullets.forEach(b => b.update(deltaTime));
+        gameState.enemies.forEach(e => e.update(deltaTime));
+        if (gameState.bossActive && gameState.boss) { gameState.boss.update(deltaTime); }
+        gameState.explosions.forEach(exp => exp.update(deltaTime));
+
+        // --- Collision Detection ---
+        checkCollisions();
+
+        // --- Drawing --- (Clear canvas first)
+        ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+        // Draw background first
+        drawStars(ctx, deltaTime);
+
+        // Draw game objects
+        if (gameState.player) { gameState.player.draw(ctx); }
+        gameState.enemies.forEach(e => e.draw(ctx));
+        if (gameState.bossActive && gameState.boss) { gameState.boss.draw(ctx); }
+        gameState.playerBullets.forEach(b => b.draw(ctx));
+        gameState.enemyBullets.forEach(b => b.draw(ctx));
+        gameState.explosions.forEach(exp => exp.draw(ctx)); // Draw explosions last (on top)
+
+        // --- Cleanup Phase ---
+        // Filter out objects marked for deletion from their respective arrays
+        gameState.playerBullets = gameState.playerBullets.filter(b => !b.markedForDeletion);
+        gameState.enemyBullets = gameState.enemyBullets.filter(b => !b.markedForDeletion);
+        gameState.enemies = gameState.enemies.filter(e => !e.markedForDeletion);
+        gameState.explosions = gameState.explosions.filter(exp => !exp.markedForDeletion);
+
+        // Check if the boss was marked for deletion this frame (and thus defeated)
+        if (gameState.boss && gameState.boss.markedForDeletion) {
+            // levelCleared flag is set within boss.takeDamage, loop will handle the state change on next iteration
+            gameState.boss = null; // Remove the boss object reference
+        }
+
+    } // End of gameLoop
+
+    // --- Event Listeners ---
+    // Listen for key down events
+    window.addEventListener('keydown', (e) => {
+        keys[e.code] = true; // Record the key press using its code
+    });
+
+    // Listen for key up events
+    window.addEventListener('keyup', (e) => {
+        keys[e.code] = false; // Record the key release using its code
+    });
+
+    // Listen for clicks on the start/restart buttons
+    startButton.addEventListener('click', () => {
+        initGame(); // Initialize and start the game
+    });
+    restartButton.addEventListener('click', () => {
+        initGame(); // Re-initialize and restart the game
+    });
+    restartClearButton.addEventListener('click', () => {
+        initGame(); // Re-initialize and restart the game after clearing
+    });
+
+
+    // --- Initial Setup ---
+    // The start screen is shown by default via CSS.
+    // initGame() is called only when the start button is pressed.
+    // This loop draws the background stars before the game officially starts.
+    let initialTimestamp = performance.now();
+    function initialDrawingLoop(timestamp) {
+        if (gameState.gameStarted) return; // Stop this loop once the game starts
+        const deltaTime = (timestamp - initialTimestamp) / 1000;
+        initialTimestamp = timestamp;
+        ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+        drawStars(ctx, deltaTime); // Update and draw stars
+        requestAnimationFrame(initialDrawingLoop); // Continue the initial loop
+    }
+    initStars(); // Prepare star data
+    requestAnimationFrame(initialDrawingLoop); // Start drawing background stars immediately
+
+  </script>
+</body>
+</html>
